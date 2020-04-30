@@ -1,12 +1,11 @@
 use std::error;
-use std::io::{Error, Read};
 use std::fmt;
-
-use reader::SMFReader;
+use std::io::{Error, Read};
 
 use num_traits::FromPrimitive;
 
-use util::{read_byte, read_amount, latin1_decode};
+use crate::reader::SMFReader;
+use crate::util::{latin1_decode, read_amount, read_byte};
 
 /// An error that can occur parsing a meta command
 #[derive(Debug)]
@@ -23,15 +22,7 @@ impl From<Error> for MetaError {
 }
 
 impl error::Error for MetaError {
-    fn description(&self) -> &str {
-        match *self {
-            MetaError::InvalidCommand(_) => "Invalid meta command",
-            MetaError::OtherErr(_) => "A general midi error has occured",
-            MetaError::Error(ref e) => e.description(),
-        }
-    }
-
-    fn cause(&self) -> Option<&dyn error::Error> {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match *self {
             MetaError::Error(ref err) => Some(err as &dyn error::Error),
             _ => None,
@@ -42,15 +33,15 @@ impl error::Error for MetaError {
 impl fmt::Display for MetaError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            MetaError::InvalidCommand(ref c) => write!(f,"Invalid Meta command: {}",c),
-            MetaError::OtherErr(ref s) => write!(f,"Meta Error: {}",s),
-            MetaError::Error(ref e) => write!(f,"{}",e),
+            MetaError::InvalidCommand(ref c) => write!(f, "Invalid Meta command: {}", c),
+            MetaError::OtherErr(ref s) => write!(f, "Meta Error: {}", s),
+            MetaError::Error(ref e) => write!(f, "{}", e),
         }
     }
 }
 
 /// Commands that meta messages can represent
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd,Ord,  FromPrimitive)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
 pub enum MetaCommand {
     SequenceNumber = 0x00,
     TextEvent = 0x01,
@@ -93,53 +84,77 @@ impl Clone for MetaEvent {
 
 impl fmt::Display for MetaEvent {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Meta Event: {}",
-               match self.command {
-                   MetaCommand::SequenceNumber => format!("Sequence Number: {}", ((self.data[0] as u16) << 8) | self.data[1] as u16),
-                   MetaCommand::TextEvent => {
-                       format!("Text Event. Len: {} Text: {}", self.length, latin1_decode(&self.data))
-                   },
-                   MetaCommand::CopyrightNotice => {
-                       format!("Copyright Notice: {}", latin1_decode(&self.data))
-                   },
-                   MetaCommand::SequenceOrTrackName => {
-                       format!("Sequence/Track Name, length: {}, name: {}", self.length, latin1_decode(&self.data))
-                   },
-                   MetaCommand::InstrumentName => {
-                       format!("InstrumentName: {}", latin1_decode(&self.data))
-                   },
-                   MetaCommand::LyricText => {
-                       format!("LyricText: {}", latin1_decode(&self.data))
-                   }
-                   MetaCommand::MarkerText => {
-                       format!("MarkerText: {}", latin1_decode(&self.data))
-                   }
-                   MetaCommand::CuePoint => format!("CuePoint: {}", latin1_decode(&self.data)),
-                   MetaCommand::MIDIChannelPrefixAssignment => format!("MIDI Channel Prefix Assignment, channel: {}", self.data[0]+1),
-                   MetaCommand::MIDIPortPrefixAssignment => format!("MIDI Port Prefix Assignment, port: {}", self.data[0]),
-                   MetaCommand::EndOfTrack => format!("End Of Track"),
-                   MetaCommand::TempoSetting => format!("Set Tempo, microseconds/quarter note: {}", self.data_as_u64(3)),
-                   MetaCommand::SMPTEOffset => format!("SMPTEOffset"),
-                   MetaCommand::TimeSignature => format!("Time Signature: {}/{}, {} ticks/metronome click, {} 32nd notes/quarter note",
-                                                         self.data[0],
-                                                         2usize.pow(self.data[1] as u32),
-                                                         self.data[2],
-                                                         self.data[3]),
-                   MetaCommand::KeySignature => format!("Key Signature, {} sharps/flats, {}",
-                                                        self.data[0] as i8,
-                                                        match self.data[1] {
-                                                            0 => "Major",
-                                                            1 => "Minor",
-                                                            _ => "Invalid Signature",
-                                                        }),
-                   MetaCommand::SequencerSpecificEvent => format!("SequencerSpecificEvent"),
-                   MetaCommand::Unknown => format!("Unknown, length: {}", self.data.len()),
-               })
+        write!(
+            f,
+            "Meta Event: {}",
+            match self.command {
+                MetaCommand::SequenceNumber => format!(
+                    "Sequence Number: {}",
+                    ((self.data[0] as u16) << 8) | self.data[1] as u16
+                ),
+                MetaCommand::TextEvent => {
+                    format!(
+                        "Text Event. Len: {} Text: {}",
+                        self.length,
+                        latin1_decode(&self.data)
+                    )
+                }
+                MetaCommand::CopyrightNotice => {
+                    format!("Copyright Notice: {}", latin1_decode(&self.data))
+                }
+                MetaCommand::SequenceOrTrackName => {
+                    format!(
+                        "Sequence/Track Name, length: {}, name: {}",
+                        self.length,
+                        latin1_decode(&self.data)
+                    )
+                }
+                MetaCommand::InstrumentName => {
+                    format!("InstrumentName: {}", latin1_decode(&self.data))
+                }
+                MetaCommand::LyricText => {
+                    format!("LyricText: {}", latin1_decode(&self.data))
+                }
+                MetaCommand::MarkerText => {
+                    format!("MarkerText: {}", latin1_decode(&self.data))
+                }
+                MetaCommand::CuePoint => format!("CuePoint: {}", latin1_decode(&self.data)),
+                MetaCommand::MIDIChannelPrefixAssignment => format!(
+                    "MIDI Channel Prefix Assignment, channel: {}",
+                    self.data[0] + 1
+                ),
+                MetaCommand::MIDIPortPrefixAssignment =>
+                    format!("MIDI Port Prefix Assignment, port: {}", self.data[0]),
+                MetaCommand::EndOfTrack => format!("End Of Track"),
+                MetaCommand::TempoSetting => format!(
+                    "Set Tempo, microseconds/quarter note: {}",
+                    self.data_as_u64(3)
+                ),
+                MetaCommand::SMPTEOffset => format!("SMPTEOffset"),
+                MetaCommand::TimeSignature => format!(
+                    "Time Signature: {}/{}, {} ticks/metronome click, {} 32nd notes/quarter note",
+                    self.data[0],
+                    2usize.pow(self.data[1] as u32),
+                    self.data[2],
+                    self.data[3]
+                ),
+                MetaCommand::KeySignature => format!(
+                    "Key Signature, {} sharps/flats, {}",
+                    self.data[0] as i8,
+                    match self.data[1] {
+                        0 => "Major",
+                        1 => "Minor",
+                        _ => "Invalid Signature",
+                    }
+                ),
+                MetaCommand::SequencerSpecificEvent => format!("SequencerSpecificEvent"),
+                MetaCommand::Unknown => format!("Unknown, length: {}", self.data.len()),
+            }
+        )
     }
 }
 
 impl MetaEvent {
-
     /// Turn `bytes` bytes of the data of this event into a u64
     pub fn data_as_u64(&self, bytes: usize) -> u64 {
         let mut res = 0;
@@ -152,24 +167,24 @@ impl MetaEvent {
 
     /// Extract the next meta event from a reader
     pub fn next_event(reader: &mut dyn Read) -> Result<MetaEvent, MetaError> {
-        let command =
-            match MetaCommand::from_u8(try!(read_byte(reader))) {
-                Some(c) => {c},
-                None => MetaCommand::Unknown,
-            };
+        let command = match MetaCommand::from_u8(read_byte(reader)?) {
+            Some(c) => c,
+            None => MetaCommand::Unknown,
+        };
         let len = match SMFReader::read_vtime(reader) {
-            Ok(t) => { t }
-            Err(_) => { return Err(MetaError::OtherErr("Couldn't read time for meta command")); }
+            Ok(t) => t,
+            Err(_) => {
+                return Err(MetaError::OtherErr("Couldn't read time for meta command"));
+            }
         };
         let mut data = Vec::new();
-        try!(read_amount(reader,&mut data,len as usize));
-        Ok(MetaEvent{
-            command: command,
+        read_amount(reader, &mut data, len as usize)?;
+        Ok(MetaEvent {
+            command,
             length: len,
-            data: data
+            data,
         })
     }
-
 
     // util functions for event constructors
     fn u16_to_vec(val: u16) -> Vec<u8> {
@@ -244,7 +259,6 @@ impl MetaEvent {
         }
     }
 
-
     /// Create a marker text meta event
     pub fn marker_text(text: String) -> MetaEvent {
         MetaEvent {
@@ -302,11 +316,17 @@ impl MetaEvent {
     }
 
     /// Create an smpte offset meta event
-    pub fn smpte_offset(hours: u8, minutes: u8, seconds: u8, frames: u8, fractional: u8) -> MetaEvent {
+    pub fn smpte_offset(
+        hours: u8,
+        minutes: u8,
+        seconds: u8,
+        frames: u8,
+        fractional: u8,
+    ) -> MetaEvent {
         MetaEvent {
             command: MetaCommand::SMPTEOffset,
             length: 5,
-            data: vec![hours,minutes,seconds,frames,fractional],
+            data: vec![hours, minutes, seconds, frames, fractional],
         }
     }
 
@@ -322,11 +342,21 @@ impl MetaEvent {
     /// The parameter `num_32nd_notes_per_24_clocks` defines this in terms of the
     /// number of 1/32 notes which make up the usual 24 MIDI Clocks
     /// (the 'standard' quarter note).  8 is standard
-    pub fn time_signature(numerator: u8, denominator: u8, clocks_per_tick: u8, num_32nd_notes_per_24_clocks: u8) -> MetaEvent {
+    pub fn time_signature(
+        numerator: u8,
+        denominator: u8,
+        clocks_per_tick: u8,
+        num_32nd_notes_per_24_clocks: u8,
+    ) -> MetaEvent {
         MetaEvent {
             command: MetaCommand::TimeSignature,
             length: 4,
-            data: vec![numerator,denominator,clocks_per_tick,num_32nd_notes_per_24_clocks],
+            data: vec![
+                numerator,
+                denominator,
+                clocks_per_tick,
+                num_32nd_notes_per_24_clocks,
+            ],
         }
     }
 
@@ -350,8 +380,7 @@ impl MetaEvent {
         MetaEvent {
             command: MetaCommand::SequencerSpecificEvent,
             length: data.len() as u64,
-            data: data,
+            data,
         }
     }
-
 }

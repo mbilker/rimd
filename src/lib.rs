@@ -17,58 +17,36 @@
 extern crate byteorder;
 extern crate encoding;
 extern crate num_traits;
-#[macro_use] extern crate num_derive;
+#[macro_use]
+extern crate num_derive;
 
-use std::error;
 use std::convert::From;
+use std::error;
 use std::fs::File;
-use std::io::{Error,Read};
+use std::io::{Error, Read};
 use std::path::Path;
 
 use std::fmt;
 use std::string::FromUtf8Error;
 
-pub use midi:: {
-    Status,
-    MidiError,
-    MidiMessage,
-    STATUS_MASK,
-    CHANNEL_MASK,
-    make_status,
-};
+pub use crate::midi::{make_status, MidiError, MidiMessage, Status, CHANNEL_MASK, STATUS_MASK};
 
-pub use meta:: {
-    MetaCommand,
-    MetaError,
-    MetaEvent,
-};
+use crate::reader::SMFReader;
 
-pub use builder:: {
-    SMFBuilder,
-    AbsoluteEvent,
-};
-
-use reader:: {
-    SMFReader,
-};
-
-pub use writer:: {
-    SMFWriter,
-};
-
-pub use util:: {
-    note_num_to_name,
-};
+pub use crate::builder::{AbsoluteEvent, SMFBuilder};
+pub use crate::meta::{MetaCommand, MetaError, MetaEvent};
+pub use crate::util::note_num_to_name;
+pub use crate::writer::SMFWriter;
 
 mod builder;
-mod midi;
 mod meta;
+mod midi;
 mod reader;
-mod writer;
 mod util;
+mod writer;
 
 /// Format of the SMF
-#[derive(Debug,Clone,Copy,PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SMFFormat {
     /// single track file format
     Single = 0,
@@ -78,19 +56,22 @@ pub enum SMFFormat {
     MultiSong = 2,
 }
 
-
 impl fmt::Display for SMFFormat {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}",match *self {
-            SMFFormat::Single     => "single track",
-            SMFFormat::MultiTrack => "multiple track",
-            SMFFormat::MultiSong  => "multiple song",
-        })
+        write!(
+            f,
+            "{}",
+            match *self {
+                SMFFormat::Single => "single track",
+                SMFFormat::MultiTrack => "multiple track",
+                SMFFormat::MultiSong => "multiple song",
+            }
+        )
     }
 }
 
 /// An event can be either a midi message or a meta event
-#[derive(Debug,Clone)]
+#[derive(Debug, Clone)]
 pub enum Event {
     Midi(MidiMessage),
     Meta(MetaEvent),
@@ -99,8 +80,8 @@ pub enum Event {
 impl fmt::Display for Event {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Event::Midi(ref m) => { write!(f, "{}", m) }
-            Event::Meta(ref m) => { write!(f, "{}", m) }
+            Event::Midi(ref m) => write!(f, "{}", m),
+            Event::Meta(ref m) => write!(f, "{}", m),
         }
     }
 }
@@ -109,7 +90,7 @@ impl Event {
     /// Return the number of bytes this event uses.
     pub fn len(&self) -> usize {
         match *self {
-            Event::Midi(ref m) => { m.data.len() }
+            Event::Midi(ref m) => m.data.len(),
             Event::Meta(ref m) => {
                 let v = SMFWriter::vtime_to_vec(m.length);
                 // +1 for command byte +1 for 0xFF to indicate Meta event
@@ -120,7 +101,7 @@ impl Event {
 }
 
 /// An event occuring in the track.
-#[derive(Debug,Clone)]
+#[derive(Debug, Clone)]
 pub struct TrackEvent {
     /// A delta offset, indicating how many ticks after the previous
     /// event this event occurs
@@ -129,16 +110,15 @@ pub struct TrackEvent {
     pub event: Event,
 }
 
-
 impl fmt::Display for TrackEvent {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "vtime: {}\t{}",self.vtime,self.event)
+        write!(f, "vtime: {}\t{}", self.vtime, self.event)
     }
 }
 
 impl TrackEvent {
     pub fn fmt_with_time_offset(&self, cur_time: u64) -> String {
-        format!("time: {}\t{}",(self.vtime+cur_time),self.event)
+        format!("time: {}\t{}", (self.vtime + cur_time), self.event)
     }
 
     /// Return the number of bytes this event uses in the track,
@@ -157,23 +137,25 @@ pub struct Track {
     /// Optional name for this track
     pub name: Option<String>,
     /// Vector of the events in this track
-    pub events: Vec<TrackEvent>
+    pub events: Vec<TrackEvent>,
 }
 
 impl fmt::Display for Track {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Track, copyright: {}, name: {}",
-               match self.copyright {
-                   Some(ref c) => &c[..],
-                   None => "[none]"
-               },
-               match self.name {
-                   Some(ref n) => &n[..],
-                   None => "[none]"
-               })
+        write!(
+            f,
+            "Track, copyright: {}, name: {}",
+            match self.copyright {
+                Some(ref c) => &c[..],
+                None => "[none]",
+            },
+            match self.name {
+                Some(ref n) => &n[..],
+                None => "[none]",
+            }
+        )
     }
 }
-
 
 /// An error that occured in parsing an SMF
 #[derive(Debug)]
@@ -209,16 +191,7 @@ impl From<FromUtf8Error> for SMFError {
 }
 
 impl error::Error for SMFError {
-    fn description(&self) -> &str {
-        match *self {
-            SMFError::InvalidSMFFile(_) => "The SMF file was invalid",
-            SMFError::Error(ref e)        => e.description(),
-            SMFError::MidiError(ref m)      => m.description(),
-            SMFError::MetaError(ref m)      => m.description(),
-        }
-    }
-
-    fn cause(&self) -> Option<&dyn error::Error> {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match *self {
             SMFError::MidiError(ref m) => Some(m as &dyn error::Error),
             SMFError::MetaError(ref m) => Some(m as &dyn error::Error),
@@ -230,12 +203,12 @@ impl error::Error for SMFError {
 
 impl fmt::Display for SMFError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-       match *self {
-           SMFError::InvalidSMFFile(s) => write!(f,"SMF file is invalid: {}",s),
-           SMFError::MidiError(ref err) => { write!(f,"{}",err) },
-           SMFError::MetaError(ref err) => { write!(f,"{}",err) },
-           SMFError::Error(ref err) => { write!(f,"{}",err) },
-       }
+        match *self {
+            SMFError::InvalidSMFFile(s) => write!(f, "SMF file is invalid: {}", s),
+            SMFError::MidiError(ref err) => write!(f, "{}", err),
+            SMFError::MetaError(ref err) => write!(f, "{}", err),
+            SMFError::Error(ref err) => write!(f, "{}", err),
+        }
     }
 }
 
@@ -253,16 +226,15 @@ pub struct SMF {
     pub division: i16,
 }
 
-
 impl SMF {
     /// Read an SMF file at the given path
-    pub fn from_file(path: &Path) -> Result<SMF,SMFError> {
-        let mut file = try!(File::open(path));
+    pub fn from_file(path: &Path) -> Result<SMF, SMFError> {
+        let mut file = File::open(path)?;
         SMFReader::read_smf(&mut file)
     }
 
     /// Read an SMF from the given reader
-    pub fn from_reader(reader: &mut dyn Read) -> Result<SMF,SMFError> {
+    pub fn from_reader(reader: &mut dyn Read) -> Result<SMF, SMFError> {
         SMFReader::read_smf(reader)
     }
 
@@ -281,7 +253,10 @@ impl SMF {
                     match event.event {
                         Event::Midi(ref msg) if msg.channel().is_some() => {
                             let events = &mut tracks[msg.channel().unwrap() as usize + 1];
-                            events.push(TrackEvent {vtime: time, event: event.event.clone()});
+                            events.push(TrackEvent {
+                                vtime: time,
+                                event: event.event.clone(),
+                            });
                         }
                         /*MidiEvent::Meta(ref msg) if [
                             MetaCommand::MIDIChannelPrefixAssignment,
@@ -292,7 +267,10 @@ impl SMF {
                             println!("prefix: {:?}", event);
                         }*/
                         _ => {
-                            tracks[0].push(TrackEvent {vtime: time, event: event.event.clone()});
+                            tracks[0].push(TrackEvent {
+                                vtime: time,
+                                event: event.event.clone(),
+                            });
                         }
                     }
                 }
@@ -309,7 +287,11 @@ impl SMF {
                             event.vtime -= time;
                             time = tmp;
                         }
-                        out.tracks.push(Track {events: events.clone(), copyright: None, name: None});
+                        out.tracks.push(Track {
+                            events: events.clone(),
+                            copyright: None,
+                            name: None,
+                        });
                     }
                 }
                 out.tracks[0].name = self.tracks[0].name.clone();
@@ -319,4 +301,3 @@ impl SMF {
         }
     }
 }
-

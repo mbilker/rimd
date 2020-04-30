@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::ops::IndexMut;
 
-use ::{SMF,Event,SMFFormat,MetaEvent,MidiMessage,Track,TrackEvent};
+use crate::{Event, MetaEvent, MidiMessage, SMFFormat, Track, TrackEvent, SMF};
 
 /// An AbsoluteEvent is an event that has an absolute time
 /// This is useful for apps that want to store events internally
@@ -15,13 +15,13 @@ pub struct AbsoluteEvent {
 impl AbsoluteEvent {
     pub fn new_midi(time: u64, midi: MidiMessage) -> AbsoluteEvent {
         AbsoluteEvent {
-            time: time,
+            time,
             event: Event::Midi(midi),
         }
     }
     pub fn new_meta(time: u64, meta: MetaEvent) -> AbsoluteEvent {
         AbsoluteEvent {
-            time: time,
+            time,
             event: Event::Meta(meta),
         }
     }
@@ -58,17 +58,13 @@ impl Eq for AbsoluteEvent {}
 impl PartialEq for AbsoluteEvent {
     fn eq(&self, other: &AbsoluteEvent) -> bool {
         if self.time == other.time {
-            match (&self.event,&other.event) {
-                (&Event::Midi(_),&Event::Meta(_)) => false,
-                (&Event::Meta(_),&Event::Midi(_)) => false,
-                (&Event::Meta(ref me),&Event::Meta(ref you)) => {
-                    me.command == you.command
-                },
-                (&Event::Midi(ref me),&Event::Midi(ref you)) => {
-                    me.data(0) == you.data(0)
-                        &&
-                    me.data(1) == me.data(1)
-                },
+            match (&self.event, &other.event) {
+                (&Event::Midi(_), &Event::Meta(_)) => false,
+                (&Event::Meta(_), &Event::Midi(_)) => false,
+                (&Event::Meta(ref me), &Event::Meta(ref you)) => me.command == you.command,
+                (&Event::Midi(ref me), &Event::Midi(ref you)) => {
+                    me.data(0) == you.data(0) && me.data(1) == me.data(1)
+                }
             }
         } else {
             false
@@ -90,18 +86,18 @@ impl Ord for AbsoluteEvent {
             // if vtime is the same, check types and make meta events
             // sort before standard events
             Ordering::Equal => {
-                match (&self.event,&other.event) {
+                match (&self.event, &other.event) {
                     // I'm midi, other is meta, so I'm greater
-                    (&Event::Midi(_),&Event::Meta(_)) => Ordering::Greater,
+                    (&Event::Midi(_), &Event::Meta(_)) => Ordering::Greater,
                     // I'm meta, other is midi, so I'm less
-                    (&Event::Meta(_),&Event::Midi(_)) => Ordering::Less,
-                    (&Event::Meta(ref me),&Event::Meta(ref you)) => {
-                        me.command.cmp(&you.command)
-                    },
-                    (&Event::Midi(ref me),&Event::Midi(ref you)) => {
-                        if      me.data(0) < you.data(0) { Ordering::Less }
-                        else if me.data(0) > you.data(0) { Ordering::Greater }
-                        else {
+                    (&Event::Meta(_), &Event::Midi(_)) => Ordering::Less,
+                    (&Event::Meta(ref me), &Event::Meta(ref you)) => me.command.cmp(&you.command),
+                    (&Event::Midi(ref me), &Event::Midi(ref you)) => {
+                        if me.data(0) < you.data(0) {
+                            Ordering::Less
+                        } else if me.data(0) > you.data(0) {
+                            Ordering::Greater
+                        } else {
                             if me.data(1) < you.data(1) {
                                 Ordering::Less
                             } else if me.data(1) > you.data(1) {
@@ -110,7 +106,7 @@ impl Ord for AbsoluteEvent {
                                 res
                             }
                         }
-                    },
+                    }
                 }
             }
         }
@@ -135,7 +131,6 @@ struct TrackBuilder {
 }
 
 impl TrackBuilder {
-
     fn result(self) -> Track {
         Track {
             copyright: self.copyright,
@@ -146,34 +141,31 @@ impl TrackBuilder {
                     let absevents = heap.into_sorted_vec();
                     let mut prev_time = 0;
                     for ev in absevents.into_iter() {
-                        let vtime =
-                            if prev_time == 0 {
-                                ev.time
-                            } else {
-                                ev.time - prev_time
-                            };
+                        let vtime = if prev_time == 0 {
+                            ev.time
+                        } else {
+                            ev.time - prev_time
+                        };
                         prev_time = ev.time;
                         events.push(TrackEvent {
-                            vtime: vtime,
+                            vtime,
                             event: ev.event,
                         });
                     }
                     events
-                },
+                }
                 EventContainer::Static(vec) => vec,
             },
         }
     }
 
-    fn abs_time_from_delta(&self,delta: u64) -> u64 {
+    fn abs_time_from_delta(&self, delta: u64) -> u64 {
         match self.events {
-            EventContainer::Heap(ref heap) => {
-                match heap.peek() {
-                    Some(e) => { e.time + delta }
-                    None => { delta }
-                }
-            }
-            _ => { panic!("Can't call abs_time_from_delta on non-heap builder") }
+            EventContainer::Heap(ref heap) => match heap.peek() {
+                Some(e) => e.time + delta,
+                None => delta,
+            },
+            _ => panic!("Can't call abs_time_from_delta on non-heap builder"),
         }
     }
 }
@@ -182,15 +174,13 @@ impl TrackBuilder {
 /// adding tracks to the builder via `add_track` and then adding
 /// events to each track.
 pub struct SMFBuilder {
-    tracks:Vec<TrackBuilder>
+    tracks: Vec<TrackBuilder>,
 }
 
 impl SMFBuilder {
     /// Create a new SMFBuilder.  Initially the builder will have no tracks
     pub fn new() -> SMFBuilder {
-        SMFBuilder {
-            tracks: Vec::new(),
-        }
+        SMFBuilder { tracks: Vec::new() }
     }
 
     /// Get the number of tracks currenly in the builder
@@ -208,17 +198,22 @@ impl SMFBuilder {
     }
 
     /// Add a static track to the builder (note this will clone all events in the passed iterator)
-    pub fn add_static_track<'a,I>(&mut self, track: I) where I: Iterator<Item=&'a AbsoluteEvent> {
+    pub fn add_static_track<'a, I>(&mut self, track: I)
+    where
+        I: Iterator<Item = &'a AbsoluteEvent>,
+    {
         let mut cur_time: u64 = 0;
-        let vec = track.map(|bev| {
-            assert!(bev.time >= cur_time);
-            let vtime = bev.time - cur_time;
-            cur_time = vtime;
-            TrackEvent {
-                vtime: vtime,
-                event: bev.event.clone(),
-            }
-        }).collect();
+        let vec = track
+            .map(|bev| {
+                assert!(bev.time >= cur_time);
+                let vtime = bev.time - cur_time;
+                cur_time = vtime;
+                TrackEvent {
+                    vtime,
+                    event: bev.event.clone(),
+                }
+            })
+            .collect();
         self.tracks.push(TrackBuilder {
             copyright: None,
             name: None,
@@ -270,11 +265,11 @@ impl SMFBuilder {
         match self.tracks.index_mut(track).events {
             EventContainer::Heap(ref mut heap) => {
                 heap.push(AbsoluteEvent {
-                    time: time,
+                    time,
                     event: Event::Midi(msg),
                 });
             }
-            _ => { panic!("Can't add events to static tracks") }
+            _ => panic!("Can't add events to static tracks"),
         }
     }
 
@@ -288,7 +283,7 @@ impl SMFBuilder {
     pub fn add_midi_rel(&mut self, track: usize, delta: u64, msg: MidiMessage) {
         assert!(self.tracks.len() > track);
         let time = self.tracks[track].abs_time_from_delta(delta);
-        self.add_midi_abs(track,time,msg);
+        self.add_midi_abs(track, time, msg);
     }
 
     /// Add a meta event to track at index `track` at absolute  time
@@ -302,11 +297,11 @@ impl SMFBuilder {
         match self.tracks.index_mut(track).events {
             EventContainer::Heap(ref mut heap) => {
                 heap.push(AbsoluteEvent {
-                    time: time,
+                    time,
                     event: Event::Meta(event),
                 });
             }
-            _ => { panic!("Can't add events to static tracks") }
+            _ => panic!("Can't add events to static tracks"),
         }
     }
 
@@ -320,7 +315,7 @@ impl SMFBuilder {
     pub fn add_meta_rel(&mut self, track: usize, delta: u64, event: MetaEvent) {
         assert!(self.tracks.len() > track);
         let time = self.tracks[track].abs_time_from_delta(delta);
-        self.add_meta_abs(track,time,event);
+        self.add_meta_abs(track, time, event);
     }
 
     /// Add a TrackEvent to the track at index `track`.  The event
@@ -340,7 +335,7 @@ impl SMFBuilder {
             EventContainer::Heap(ref mut heap) => {
                 heap.push(bevent);
             }
-            _ => { panic!("Can't add events to static tracks") }
+            _ => panic!("Can't add events to static tracks"),
         }
     }
 
@@ -357,14 +352,25 @@ impl SMFBuilder {
 
 #[test]
 fn simple_build() {
-    let note_on = MidiMessage::note_on(69,100,0);
-    let note_off = MidiMessage::note_off(69,100,0);
-
+    let note_on = MidiMessage::note_on(69, 100, 0);
+    let note_off = MidiMessage::note_off(69, 100, 0);
 
     let mut builder = SMFBuilder::new();
     builder.add_track();
 
-    builder.add_event(0, TrackEvent{vtime: 0, event: Event::Midi(note_on)});
-    builder.add_event(0, TrackEvent{vtime: 10, event: Event::Midi(note_off)});
+    builder.add_event(
+        0,
+        TrackEvent {
+            vtime: 0,
+            event: Event::Midi(note_on),
+        },
+    );
+    builder.add_event(
+        0,
+        TrackEvent {
+            vtime: 10,
+            event: Event::Midi(note_off),
+        },
+    );
     builder.result();
 }
